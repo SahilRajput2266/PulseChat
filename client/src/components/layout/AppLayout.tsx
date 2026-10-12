@@ -163,13 +163,35 @@ export const AppLayout: React.FC = () => {
       fetchConversations(searchTermRef.current);
     });
 
-    const unregisterUpdate = registerMessageUpdateListener(({ messageId, status }) => {
+    const unregisterUpdate = registerMessageUpdateListener(({ messageId, status, conversationId }) => {
       setMessages((prev) =>
         prev.map((m) => (m.messageId === messageId ? { ...m, status } : m))
       );
+
+      // Immediately reflect updated message status (e.g. double tick) in sidebar
+      setConversations((prev) =>
+        prev.map((c) => {
+          const cId = String(c._id || '');
+          if (
+            (conversationId && cId === String(conversationId)) ||
+            (activeConversationRef.current && cId === String(activeConversationRef.current._id))
+          ) {
+            return {
+              ...c,
+              lastMessageStatus: status
+            };
+          }
+          return c;
+        })
+      );
     });
 
-    const unregisterConv = registerConversationListener(() => {
+    const unregisterConv = registerConversationListener((updatedConv) => {
+      if (updatedConv) {
+        setConversations((prev) =>
+          prev.map((c) => (String(c._id || '') === String(updatedConv._id || '') ? { ...c, ...updatedConv } : c))
+        );
+      }
       fetchConversations(searchTermRef.current);
     });
 
@@ -205,8 +227,23 @@ export const AppLayout: React.FC = () => {
 
     setMessages((prev) => [...prev, optimisticMessage]);
 
+    // Optimistically update conversation in sidebar
+    setConversations((prev) =>
+      prev.map((c) =>
+        c._id === activeConversation._id
+          ? {
+              ...c,
+              lastMessagePreview: text,
+              lastMessageTimestamp: optimisticMessage.timestamp,
+              lastMessageStatus: 'sending',
+              lastMessageDirection: 'outbound'
+            }
+          : c
+      )
+    );
+
     try {
-      const res = await api.request<{ data: Message; conversation: Conversation }>('/messages/send', {
+      const res = await api.request<{ data: Message; conversation?: Conversation }>('/messages/send', {
         method: 'POST',
         body: JSON.stringify({
           conversationId: activeConversation._id,
@@ -226,12 +263,25 @@ export const AppLayout: React.FC = () => {
         return prev.map((m) => (m._id === tempId ? res.data : m));
       });
 
+      if (res.conversation) {
+        setConversations((prev) =>
+          prev.map((c) => (c._id === res.conversation!._id ? { ...c, ...res.conversation } : c))
+        );
+      }
+
       // Refresh conversations
       fetchConversations(searchTerm);
     } catch (err) {
       // Mark as failed
       setMessages((prev) =>
         prev.map((m) => (m._id === tempId ? { ...m, status: 'failed' } : m))
+      );
+      setConversations((prev) =>
+        prev.map((c) =>
+          c._id === activeConversation._id
+            ? { ...c, lastMessageStatus: 'failed' }
+            : c
+        )
       );
       throw err;
     }

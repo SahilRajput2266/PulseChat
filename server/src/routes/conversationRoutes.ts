@@ -25,10 +25,23 @@ router.get('/', async (req: AuthenticatedRequest, res: Response) => {
 
     const conversations = await Conversation.find(query)
       .sort({ lastMessageTimestamp: -1 })
-      .limit(100)
-      .lean();
+      .limit(100);
 
-    res.json({ conversations });
+    const syncedConversations = await Promise.all(
+      conversations.map(async (conv) => {
+        if (conv.lastMessageDirection === 'outbound') {
+          const latestMsg = await Message.findOne({ conversationId: conv._id, userId })
+            .sort({ timestamp: -1, createdAt: -1 });
+          if (latestMsg && latestMsg.status && latestMsg.status !== conv.lastMessageStatus) {
+            conv.lastMessageStatus = latestMsg.status;
+            await conv.save();
+          }
+        }
+        return conv.toObject ? conv.toObject() : conv;
+      })
+    );
+
+    res.json({ conversations: syncedConversations });
   } catch (err) {
     logger.error({ err }, 'Error listing conversations');
     res.status(500).json({ error: 'Failed to retrieve conversations' });

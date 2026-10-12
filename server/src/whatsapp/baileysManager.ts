@@ -312,6 +312,7 @@ export async function startWhatsAppSession(userId: string): Promise<{
           $or: [
             { jid: remoteJid },
             { lid: remoteJid },
+            ...(phoneValidation.isValid ? [{ jid: phoneValidation.jid }, { phoneNumber: phoneValidation.e164 }] : []),
             ...(msg.key.participant ? [{ jid: msg.key.participant }, { lid: msg.key.participant }] : [])
           ]
         });
@@ -330,6 +331,7 @@ export async function startWhatsAppSession(userId: string): Promise<{
             if (matchedByPush) {
               conversation = matchedByPush;
               conversation.lid = remoteJid;
+              await conversation.save();
             }
           }
 
@@ -339,7 +341,7 @@ export async function startWhatsAppSession(userId: string): Promise<{
               const pendingConvs = await Conversation.find({
                 userId,
                 $or: [{ lid: { $exists: false } }, { lid: null }, { lid: '' }]
-              }).limit(5);
+              }).limit(50);
 
               const allDigits = pendingConvs
                 .map((c) => c.phoneNumber?.replace(/\D/g, ''))
@@ -356,6 +358,7 @@ export async function startWhatsAppSession(userId: string): Promise<{
                     if ((found as any).lid === remoteJid) {
                       conversation = pendingConvs[i];
                       conversation.lid = remoteJid;
+                      await conversation.save();
                       break;
                     }
                   }
@@ -367,34 +370,25 @@ export async function startWhatsAppSession(userId: string): Promise<{
           }
         }
 
+        // Only store messages for contacts that have been added by the user
         if (!conversation) {
-          conversation = new Conversation({
-            userId,
-            jid: remoteJid,
-            lid: remoteJid.endsWith('@lid') ? remoteJid : undefined,
-            phoneNumber: phoneValidation.e164 || remoteJid.split('@')[0],
-            name: contactName,
-            unreadCount: isFromMe ? 0 : 1,
-            lastMessagePreview: messageText,
-            lastMessageTimestamp: new Date((Number(msg.messageTimestamp) || Date.now() / 1000) * 1000),
-            lastMessageStatus: isFromMe ? 'sent' : undefined,
-            lastMessageDirection: direction
-          });
-        } else {
-          if (!isFromMe) {
-            conversation.unreadCount += 1;
-          }
-          if (msg.pushName && (!conversation.name || conversation.name === conversation.phoneNumber)) {
-            conversation.name = msg.pushName;
-          }
-          if (remoteJid.endsWith('@lid') && !conversation.lid) {
-            conversation.lid = remoteJid;
-          }
-          conversation.lastMessagePreview = messageText;
-          conversation.lastMessageTimestamp = new Date((Number(msg.messageTimestamp) || Date.now() / 1000) * 1000);
-          conversation.lastMessageStatus = isFromMe ? 'sent' : undefined;
-          conversation.lastMessageDirection = direction;
+          logger.info({ remoteJid, pushName: msg.pushName, isFromMe }, 'Skipping message: sender is not in added contacts');
+          continue;
         }
+
+        if (!isFromMe) {
+          conversation.unreadCount += 1;
+        }
+        if (msg.pushName && (!conversation.name || conversation.name === conversation.phoneNumber)) {
+          conversation.name = msg.pushName;
+        }
+        if (remoteJid.endsWith('@lid') && !conversation.lid) {
+          conversation.lid = remoteJid;
+        }
+        conversation.lastMessagePreview = messageText;
+        conversation.lastMessageTimestamp = new Date((Number(msg.messageTimestamp) || Date.now() / 1000) * 1000);
+        conversation.lastMessageStatus = isFromMe ? 'sent' : undefined;
+        conversation.lastMessageDirection = direction;
 
         await conversation.save();
 
@@ -445,10 +439,29 @@ export async function startWhatsAppSession(userId: string): Promise<{
           );
 
           if (updatedMsg) {
+            // Also update Conversation's lastMessageStatus if this message is the conversation's most recent message
+            try {
+              const conv = await Conversation.findOne({ _id: updatedMsg.conversationId, userId });
+              if (conv) {
+                const latestMsg = await Message.findOne({
+                  conversationId: conv._id,
+                  userId
+                }).sort({ timestamp: -1, createdAt: -1 });
+
+                if (latestMsg && (latestMsg.messageId === update.key.id || latestMsg._id.toString() === updatedMsg._id.toString())) {
+                  conv.lastMessageStatus = newStatus;
+                  await conv.save();
+                  emitConversationUpdate(userId, { conversation: conv });
+                }
+              }
+            } catch (convErr) {
+              logger.warn({ convErr }, 'Error syncing conversation lastMessageStatus on message update');
+            }
+
             emitMessageUpdate(userId, {
               messageId: update.key.id,
               status: newStatus,
-              conversationId: updatedMsg.conversationId
+              conversationId: updatedMsg.conversationId ? updatedMsg.conversationId.toString() : undefined
             });
           }
         }
