@@ -51,6 +51,11 @@ export interface Message {
   messageId: string;
   direction: MessageDirection;
   text: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'none';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  caption?: string;
   status: MessageStatus;
   timestamp: string;
   errorMessage?: string;

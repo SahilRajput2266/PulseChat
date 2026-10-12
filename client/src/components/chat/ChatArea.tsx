@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, MoreVertical, ChevronDown, MessageSquare, Shield, ShieldCheck } from 'lucide-react';
 import { Conversation, Message } from '../../types';
 import { MessageBubble } from './MessageBubble';
-import { MessageComposer } from './MessageComposer';
+import { MessageComposer, MediaPayload } from './MessageComposer';
 import { ContactDrawer } from './ContactDrawer';
 
 interface ChatAreaProps {
@@ -10,6 +10,7 @@ interface ChatAreaProps {
   messages: Message[];
   isLoadingMessages: boolean;
   onSendMessage: (text: string) => Promise<void>;
+  onSendMedia?: (payload: MediaPayload) => Promise<void>;
   onRetryMessage: (messageId: string) => void;
   onDeleteConversation: (jid: string) => Promise<void>;
   onBackMobile: () => void;
@@ -22,6 +23,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   messages,
   isLoadingMessages,
   onSendMessage,
+  onSendMedia,
   onRetryMessage,
   onDeleteConversation,
   onBackMobile,
@@ -205,6 +207,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         {/* Fixed message composer */}
         <MessageComposer
           onSendMessage={onSendMessage}
+          onSendMedia={onSendMedia}
           isWhatsAppConnected={isWhatsAppConnected}
           onOpenConnect={onOpenConnect}
         />

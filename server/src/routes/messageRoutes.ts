@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { requireAuth, AuthenticatedRequest } from '../security/authMiddleware';
 import { Message } from '../models/Message';
-import { sendManualTextMessage } from '../whatsapp/baileysManager';
+import { sendManualTextMessage, sendMediaMessage } from '../whatsapp/baileysManager';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -38,6 +38,52 @@ router.post('/send', async (req: AuthenticatedRequest, res: Response) => {
     const errorMessage = err.message || 'Failed to send message.';
     const statusCode = errorMessage.includes('Rate limit') || errorMessage.includes('cooldown') ? 429 : 400;
 
+    res.status(statusCode).json({ error: errorMessage });
+  }
+});
+
+// POST /api/messages/send-media
+router.post('/send-media', async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user!._id.toString();
+    const { recipientPhone, conversationId, mediaBase64, mediaType, caption, fileName, mimetype } = req.body;
+
+    if (!recipientPhone && !conversationId) {
+      res.status(400).json({ error: 'Recipient phone number or conversation ID is required.' });
+      return;
+    }
+
+    if (!mediaBase64) {
+      res.status(400).json({ error: 'Media data is required.' });
+      return;
+    }
+
+    // Clean base64 data prefix if present (e.g. data:image/png;base64,...)
+    const base64Data = mediaBase64.replace(/^data:[^;]+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    const result = await sendMediaMessage(
+      userId,
+      recipientPhone || '',
+      buffer,
+      mediaType || 'image',
+      {
+        caption: caption?.trim(),
+        fileName,
+        mimetype,
+        conversationId
+      }
+    );
+
+    res.status(200).json({
+      message: 'Media message dispatched successfully',
+      data: result.message,
+      conversation: result.conversation
+    });
+  } catch (err: any) {
+    logger.warn({ err: err.message, userId: req.user?._id }, 'Media send failure');
+    const errorMessage = err.message || 'Failed to dispatch media message.';
+    const statusCode = errorMessage.includes('Rate limit') || errorMessage.includes('cooldown') ? 429 : 400;
     res.status(statusCode).json({ error: errorMessage });
   }
 });

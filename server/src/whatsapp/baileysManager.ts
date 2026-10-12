@@ -3,8 +3,11 @@ import makeWASocket, {
   fetchLatestBaileysVersion,
   WASocket,
   proto,
-  WAMessageStatus
+  WAMessageStatus,
+  downloadMediaMessage
 } from '@whiskeysockets/baileys';
+import fs from 'fs';
+import path from 'path';
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import pino from 'pino';
@@ -281,17 +284,79 @@ export async function startWhatsAppSession(userId: string): Promise<{
           continue;
         }
 
+        // Handle media attachments
+        let mediaUrl: string | undefined = undefined;
+        let mediaType: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'none' = 'none';
+        let caption: string | undefined = undefined;
+        let fileName: string | undefined = undefined;
+        let fileSize: number | undefined = undefined;
+
+        if (msg.message.imageMessage) {
+          mediaType = 'image';
+          caption = msg.message.imageMessage.caption || '';
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            const ext = msg.message.imageMessage.mimetype?.includes('png') ? 'png' : 'jpg';
+            const fname = `wa_img_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+            const uploadDir = path.resolve(process.cwd(), 'media_uploads');
+            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+            await fs.promises.writeFile(path.join(uploadDir, fname), buffer);
+            mediaUrl = `/media/${fname}`;
+            fileSize = buffer.length;
+          } catch (mediaErr) {
+            logger.warn({ mediaErr }, 'Failed to download image from WhatsApp');
+          }
+        } else if (msg.message.documentMessage) {
+          mediaType = 'document';
+          caption = msg.message.documentMessage.caption || '';
+          fileName = msg.message.documentMessage.fileName || 'document';
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            const cleanName = (fileName || 'document').replace(/[^a-zA-Z0-9._-]/g, '_');
+            const fname = `wa_doc_${Date.now()}_${cleanName}`;
+            const uploadDir = path.resolve(process.cwd(), 'media_uploads');
+            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+            await fs.promises.writeFile(path.join(uploadDir, fname), buffer);
+            mediaUrl = `/media/${fname}`;
+            fileSize = buffer.length;
+          } catch (mediaErr) {
+            logger.warn({ mediaErr }, 'Failed to download document from WhatsApp');
+          }
+        } else if (msg.message.videoMessage) {
+          mediaType = 'video';
+          caption = msg.message.videoMessage.caption || '';
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            const fname = `wa_vid_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.mp4`;
+            const uploadDir = path.resolve(process.cwd(), 'media_uploads');
+            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+            await fs.promises.writeFile(path.join(uploadDir, fname), buffer);
+            mediaUrl = `/media/${fname}`;
+            fileSize = buffer.length;
+          } catch (mediaErr) {
+            logger.warn({ mediaErr }, 'Failed to download video from WhatsApp');
+          }
+        } else if (msg.message.audioMessage) {
+          mediaType = 'audio';
+          try {
+            const buffer = await downloadMediaMessage(msg, 'buffer', {});
+            const fname = `wa_audio_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.ogg`;
+            const uploadDir = path.resolve(process.cwd(), 'media_uploads');
+            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+            await fs.promises.writeFile(path.join(uploadDir, fname), buffer);
+            mediaUrl = `/media/${fname}`;
+            fileSize = buffer.length;
+          } catch (mediaErr) {
+            logger.warn({ mediaErr }, 'Failed to download audio from WhatsApp');
+          }
+        }
+
         // Extract message content
         const messageText =
           msg.message.conversation ||
           msg.message.extendedTextMessage?.text ||
-          msg.message.imageMessage?.caption ||
-          msg.message.videoMessage?.caption ||
-          (msg.message.imageMessage ? '[Image]' : null) ||
-          (msg.message.videoMessage ? '[Video]' : null) ||
-          (msg.message.audioMessage ? '[Audio]' : null) ||
-          (msg.message.documentMessage ? '[Document]' : null) ||
-          '[Attachment]';
+          caption ||
+          (mediaType === 'image' ? '📷 Photo' : mediaType === 'video' ? '🎥 Video' : mediaType === 'audio' ? '🎵 Audio' : mediaType === 'document' ? `📄 ${fileName || 'Document'}` : '[Message]');
 
         const isFromMe = Boolean(msg.key.fromMe);
         const direction = isFromMe ? 'outbound' : 'inbound';
@@ -385,14 +450,16 @@ export async function startWhatsAppSession(userId: string): Promise<{
         if (remoteJid.endsWith('@lid') && !conversation.lid) {
           conversation.lid = remoteJid;
         }
-        conversation.lastMessagePreview = messageText;
+        conversation.lastMessagePreview = (mediaType !== 'none' && !caption)
+          ? (mediaType === 'image' ? '📷 Photo' : mediaType === 'document' ? `📄 ${fileName || 'Document'}` : messageText)
+          : messageText;
         conversation.lastMessageTimestamp = new Date((Number(msg.messageTimestamp) || Date.now() / 1000) * 1000);
         conversation.lastMessageStatus = isFromMe ? 'sent' : undefined;
         conversation.lastMessageDirection = direction;
 
         await conversation.save();
 
-        // Create Message document
+        // Create Message document with media support
         const newMsgDoc = await Message.create({
           userId,
           conversationId: conversation._id,
@@ -400,6 +467,11 @@ export async function startWhatsAppSession(userId: string): Promise<{
           messageId,
           direction,
           text: messageText,
+          mediaType,
+          mediaUrl,
+          fileName,
+          fileSize,
+          caption,
           status: isFromMe ? 'sent' : 'delivered',
           timestamp: new Date((Number(msg.messageTimestamp) || Date.now() / 1000) * 1000)
         });
@@ -631,6 +703,203 @@ export async function sendManualTextMessage(
   });
 
   // 9. Real-time broadcast
+  emitNewMessage(userId, {
+    message: messageDoc,
+    conversationId: conversation._id.toString()
+  });
+
+  emitConversationUpdate(userId, {
+    conversation
+  });
+
+  return {
+    message: messageDoc,
+    conversation
+  };
+}
+
+/**
+ * Sends a media message (image, document, video, audio) via Baileys
+ */
+export async function sendMediaMessage(
+  userId: string,
+  recipientPhoneOrJid: string,
+  buffer: Buffer,
+  mediaType: 'image' | 'document' | 'video' | 'audio',
+  options: {
+    caption?: string;
+    fileName?: string;
+    mimetype?: string;
+    conversationId?: string;
+  } = {}
+): Promise<{ message: unknown; conversation: unknown }> {
+  // 1. Validate session
+  const active = activeSessions.get(userId);
+  if (!active || !active.sock) {
+    throw new Error('WhatsApp is not connected. Please connect via QR code first.');
+  }
+  const { sock } = active;
+
+  // 2. Anti-Spam Rate Limit check
+  const rateLimitCheck = checkMessageRateLimit(userId);
+  if (!rateLimitCheck.allowed) {
+    throw new Error(rateLimitCheck.reason || 'Message sending rate limit exceeded.');
+  }
+
+  // 3. Resolve target conversation and destination JID
+  let existingConv = null;
+  if (options.conversationId) {
+    existingConv = await Conversation.findOne({ _id: options.conversationId, userId });
+  }
+
+  const rawPhone = recipientPhoneOrJid || existingConv?.phoneNumber || existingConv?.jid;
+  if (!rawPhone) {
+    throw new Error('Valid recipient phone number is required.');
+  }
+
+  const phoneValidation = validateAndNormalizePhone(rawPhone);
+  if (!phoneValidation.isValid && !rawPhone.endsWith('@s.whatsapp.net') && !rawPhone.endsWith('@lid')) {
+    throw new Error(phoneValidation.error || 'Invalid recipient phone number.');
+  }
+
+  let targetJid = existingConv?.jid || phoneValidation.jid;
+  let canonicalLid: string | undefined = existingConv?.lid;
+  let canonicalJid: string = targetJid;
+
+  // Resolve on WhatsApp
+  if (!canonicalLid && phoneValidation.isValid) {
+    try {
+      const waContact = await resolveWhatsAppContact(userId, phoneValidation.digits);
+      if (waContact) {
+        if (waContact.lid) canonicalLid = waContact.lid;
+        if (waContact.jid) canonicalJid = waContact.jid;
+        targetJid = waContact.jid || targetJid;
+      }
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  // 4. Save media buffer locally to serve via static endpoint
+  const uploadDir = path.resolve(process.cwd(), 'media_uploads');
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+  let ext = 'bin';
+  if (mediaType === 'image') {
+    ext = options.mimetype?.includes('png') ? 'png' : options.mimetype?.includes('webp') ? 'webp' : 'jpg';
+  } else if (mediaType === 'document') {
+    ext = options.fileName?.split('.').pop() || 'pdf';
+  } else if (mediaType === 'video') {
+    ext = 'mp4';
+  } else if (mediaType === 'audio') {
+    ext = 'mp3';
+  }
+
+  const savedFileName = `out_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+  await fs.promises.writeFile(path.join(uploadDir, savedFileName), buffer);
+  const mediaUrl = `/media/${savedFileName}`;
+
+  // 5. Send message through Baileys
+  let messagePayload: any = {};
+  if (mediaType === 'image') {
+    messagePayload = {
+      image: buffer,
+      caption: options.caption || '',
+      mimetype: options.mimetype || 'image/jpeg'
+    };
+  } else if (mediaType === 'document') {
+    messagePayload = {
+      document: buffer,
+      fileName: options.fileName || `document.${ext}`,
+      mimetype: options.mimetype || 'application/octet-stream',
+      caption: options.caption || ''
+    };
+  } else if (mediaType === 'video') {
+    messagePayload = {
+      video: buffer,
+      caption: options.caption || '',
+      mimetype: options.mimetype || 'video/mp4'
+    };
+  } else if (mediaType === 'audio') {
+    messagePayload = {
+      audio: buffer,
+      mimetype: options.mimetype || 'audio/mp4'
+    };
+  }
+
+  let sentResult;
+  try {
+    sentResult = await sock.sendMessage(targetJid, messagePayload);
+  } catch (err: any) {
+    if (canonicalJid && canonicalJid !== targetJid) {
+      sentResult = await sock.sendMessage(canonicalJid, messagePayload);
+    } else {
+      throw err;
+    }
+  }
+
+  if (!sentResult?.key?.id) {
+    throw new Error('WhatsApp failed to return sent message identifier.');
+  }
+
+  // Record rate limit
+  recordMessageSent(userId);
+
+  const previewText = options.caption || (mediaType === 'image' ? '📷 Photo' : mediaType === 'document' ? `📄 ${options.fileName || 'Document'}` : '[Attachment]');
+
+  // 6. Upsert Conversation
+  let conversation = existingConv || await Conversation.findOne({
+    userId,
+    $or: [
+      { jid: canonicalJid },
+      ...(canonicalLid ? [{ lid: canonicalLid }] : [])
+    ]
+  });
+
+  const formattedPhone = phoneValidation.isValid ? phoneValidation.e164 : rawPhone.split('@')[0];
+
+  if (!conversation) {
+    conversation = new Conversation({
+      userId,
+      jid: canonicalJid,
+      lid: canonicalLid,
+      phoneNumber: formattedPhone,
+      name: formattedPhone,
+      unreadCount: 0,
+      lastMessagePreview: previewText,
+      lastMessageTimestamp: new Date(),
+      lastMessageStatus: 'sent',
+      lastMessageDirection: 'outbound'
+    });
+  } else {
+    if (canonicalLid && !conversation.lid) {
+      conversation.lid = canonicalLid;
+    }
+    conversation.lastMessagePreview = previewText;
+    conversation.lastMessageTimestamp = new Date();
+    conversation.lastMessageStatus = 'sent';
+    conversation.lastMessageDirection = 'outbound';
+  }
+  await conversation.save();
+
+  // 7. Persist Message record in MongoDB
+  const messageDoc = await Message.create({
+    userId,
+    conversationId: conversation._id,
+    jid: canonicalJid,
+    messageId: sentResult.key.id,
+    direction: 'outbound',
+    text: previewText,
+    mediaType,
+    mediaUrl,
+    fileName: options.fileName,
+    fileSize: buffer.length,
+    caption: options.caption,
+    status: 'sent',
+    timestamp: new Date()
+  });
+
+  // 8. Real-time broadcast
   emitNewMessage(userId, {
     message: messageDoc,
     conversationId: conversation._id.toString()

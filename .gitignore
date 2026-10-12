@@ -21,6 +21,10 @@ auth_sessions/
 server/auth_sessions/
 .auth_sessions/
 
+# Media Uploads
+media_uploads/
+server/media_uploads/
+
 # Logs
 *.log
 npm-debug.log*

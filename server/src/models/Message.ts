@@ -11,6 +11,11 @@ export interface IMessage extends Document {
   messageId: string; // Baileys message key id
   direction: MessageDirection;
   text: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'none';
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  caption?: string;
   status: MessageStatus;
   timestamp: Date;
   errorMessage?: string;
@@ -27,6 +32,15 @@ const MessageSchema = new Schema<IMessage>(
     messageId: { type: String, required: true, index: true },
     direction: { type: String, enum: ['inbound', 'outbound'], required: true },
     text: { type: String, required: true },
+    mediaType: {
+      type: String,
+      enum: ['image', 'video', 'audio', 'document', 'sticker', 'none'],
+      default: 'none'
+    },
+    mediaUrl: { type: String },
+    fileName: { type: String },
+    fileSize: { type: Number },
+    caption: { type: String },
     status: {
       type: String,
       enum: ['sending', 'sent', 'delivered', 'read', 'failed'],

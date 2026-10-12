@@ -56,6 +56,13 @@ export function createApp(): express.Application {
   app.use('/api/messages', messageRoutes);
   app.use('/api/user', userRoutes);
 
+  // Media storage and static hosting
+  const mediaStoragePath = path.resolve(process.cwd(), 'media_uploads');
+  if (!fs.existsSync(mediaStoragePath)) {
+    fs.mkdirSync(mediaStoragePath, { recursive: true });
+  }
+  app.use('/media', express.static(mediaStoragePath));
+
   // Serve static frontend from client/dist if available
   const candidatePaths = [
     path.resolve(process.cwd(), '../client/dist'),

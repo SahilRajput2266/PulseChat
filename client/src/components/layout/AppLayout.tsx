@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Sidebar } from './Sidebar';
 import { ConversationList } from '../chat/ConversationList';
 import { ChatArea } from '../chat/ChatArea';
+import { MediaPayload } from '../chat/MessageComposer';
 import { ConnectWhatsAppModal } from '../chat/ConnectWhatsAppModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { NewConversationModal } from '../chat/NewConversationModal';
@@ -287,6 +288,105 @@ export const AppLayout: React.FC = () => {
     }
   };
 
+  // Send media message handler
+  const handleSendMedia = async (payload: MediaPayload) => {
+    if (!activeConversation) return;
+
+    const tempId = `temp_${Date.now()}`;
+    const previewText =
+      payload.caption ||
+      (payload.mediaType === 'image'
+        ? '📷 Photo'
+        : payload.mediaType === 'document'
+        ? `📄 ${payload.fileName}`
+        : '[Attachment]');
+
+    // Local preview for image
+    const localMediaUrl = payload.file.type.startsWith('image/')
+      ? URL.createObjectURL(payload.file)
+      : undefined;
+
+    const optimisticMessage: Message = {
+      _id: tempId,
+      userId: user!.id,
+      conversationId: activeConversation._id,
+      jid: activeConversation.jid,
+      messageId: tempId,
+      direction: 'outbound',
+      text: previewText,
+      mediaType: payload.mediaType,
+      mediaUrl: localMediaUrl,
+      fileName: payload.fileName,
+      fileSize: payload.file.size,
+      caption: payload.caption,
+      status: 'sending',
+      timestamp: new Date().toISOString()
+    };
+
+    setMessages((prev) => [...prev, optimisticMessage]);
+
+    // Optimistically update conversation in sidebar
+    setConversations((prev) =>
+      prev.map((c) =>
+        c._id === activeConversation._id
+          ? {
+              ...c,
+              lastMessagePreview: previewText,
+              lastMessageTimestamp: optimisticMessage.timestamp,
+              lastMessageStatus: 'sending',
+              lastMessageDirection: 'outbound'
+            }
+          : c
+      )
+    );
+
+    try {
+      const res = await api.request<{ data: Message; conversation?: Conversation }>('/messages/send-media', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationId: activeConversation._id,
+          recipientPhone: activeConversation.phoneNumber || activeConversation.jid,
+          mediaBase64: payload.base64,
+          mediaType: payload.mediaType,
+          caption: payload.caption,
+          fileName: payload.fileName,
+          mimetype: payload.mimetype
+        })
+      });
+
+      // Replace optimistic message with actual persisted message
+      setMessages((prev) => {
+        const alreadyPresent = prev.some(
+          (m) => (m._id === res.data._id || m.messageId === res.data.messageId) && m._id !== tempId
+        );
+        if (alreadyPresent) {
+          return prev.filter((m) => m._id !== tempId);
+        }
+        return prev.map((m) => (m._id === tempId ? res.data : m));
+      });
+
+      if (res.conversation) {
+        setConversations((prev) =>
+          prev.map((c) => (c._id === res.conversation!._id ? { ...c, ...res.conversation } : c))
+        );
+      }
+
+      fetchConversations(searchTerm);
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) => (m._id === tempId ? { ...m, status: 'failed' } : m))
+      );
+      setConversations((prev) =>
+        prev.map((c) =>
+          c._id === activeConversation._id
+            ? { ...c, lastMessageStatus: 'failed' }
+            : c
+        )
+      );
+      throw err;
+    }
+  };
+
   // Retry message
   const handleRetryMessage = async (messageId: string) => {
     const failedMsg = messages.find((m) => m._id === messageId || m.messageId === messageId);
@@ -371,6 +471,7 @@ export const AppLayout: React.FC = () => {
           messages={messages}
           isLoadingMessages={isLoadingMessages}
           onSendMessage={handleSendMessage}
+          onSendMedia={handleSendMedia}
           onRetryMessage={handleRetryMessage}
           onDeleteConversation={handleDeleteConversation}
           onBackMobile={() => setIsMobileChatOpen(false)}
