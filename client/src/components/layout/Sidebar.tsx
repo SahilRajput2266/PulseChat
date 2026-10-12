@@ -7,7 +7,8 @@ import {
   Moon,
   LogOut,
   Sparkles,
-  Smartphone
+  Smartphone,
+  Users
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useSocket } from '../../context/SocketContext';
@@ -17,9 +18,14 @@ import { Badge } from '../ui/Badge';
 interface SidebarProps {
   onOpenSettings: () => void;
   onOpenConnect: () => void;
+  onOpenContacts: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onOpenConnect }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  onOpenSettings,
+  onOpenConnect,
+  onOpenContacts
+}) => {
   const { user, logout } = useAuth();
   const { whatsAppSession } = useSocket();
   const { isDark, setTheme } = useTheme();
@@ -27,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onOpenConnect 
   return (
     <aside className="w-16 sm:w-18 h-full bg-slate-950 dark:bg-[#080B10] border-r border-slate-800 dark:border-[#1E2535] flex flex-col items-center py-4 justify-between z-20 flex-shrink-0">
       {/* Brand icon */}
-      <div className="flex flex-col items-center gap-6">
+      <div className="flex flex-col items-center gap-5">
         <div
           className="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-glow cursor-pointer transition-transform hover:scale-105"
           title="PulseChat - Multi-Tenant WhatsApp Client"
@@ -57,6 +63,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onOpenConnect 
                 : 'bg-slate-500'
             }`}
           />
+        </button>
+
+        {/* Contacts Book button */}
+        <button
+          onClick={onOpenContacts}
+          className="p-2.5 rounded-xl text-slate-400 hover:text-brand-400 hover:bg-slate-800/80 transition-colors"
+          title="Contacts Book (Saved Contacts)"
+        >
+          <Users className="w-5 h-5" />
         </button>
       </div>
 

@@ -3,6 +3,7 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 export interface IConversation extends Document {
   _id: Types.ObjectId;
   userId: Types.ObjectId;
+  contactId?: Types.ObjectId;
   jid: string;
   lid?: string;
   phoneNumber: string;
@@ -20,6 +21,7 @@ export interface IConversation extends Document {
 const ConversationSchema = new Schema<IConversation>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    contactId: { type: Schema.Types.ObjectId, ref: 'Contact', index: true },
     jid: { type: String, required: true, index: true },
     lid: { type: String, index: true },
     phoneNumber: { type: String, required: true },

@@ -6,6 +6,7 @@ import { MediaPayload } from '../chat/MessageComposer';
 import { ConnectWhatsAppModal } from '../chat/ConnectWhatsAppModal';
 import { SettingsModal } from '../settings/SettingsModal';
 import { NewConversationModal } from '../chat/NewConversationModal';
+import { ContactsModal } from '../contacts/ContactsModal';
 import { OnboardingFlow } from '../onboarding/OnboardingFlow';
 import { Conversation, Message } from '../../types';
 import { api } from '../../services/api';
@@ -32,6 +33,7 @@ export const AppLayout: React.FC = () => {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [showContactsModal, setShowContactsModal] = useState(false);
 
   // Show onboarding if never completed
   const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
@@ -441,6 +443,7 @@ export const AppLayout: React.FC = () => {
       <Sidebar
         onOpenSettings={() => setShowSettingsModal(true)}
         onOpenConnect={() => setShowConnectModal(true)}
+        onOpenContacts={() => setShowContactsModal(true)}
       />
 
       {/* 2. Conversations Panel */}
@@ -497,6 +500,15 @@ export const AppLayout: React.FC = () => {
         onClose={() => setShowNewChatModal(false)}
         onConversationCreated={(newConv) => {
           handleSelectConversation(newConv);
+          fetchConversations(searchTerm);
+        }}
+      />
+
+      <ContactsModal
+        isOpen={showContactsModal}
+        onClose={() => setShowContactsModal(false)}
+        onSelectContactChat={(conv) => {
+          handleSelectConversation(conv);
           fetchConversations(searchTerm);
         }}
       />

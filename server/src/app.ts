@@ -10,6 +10,7 @@ import { whatsappRoutes } from './routes/whatsappRoutes';
 import { conversationRoutes } from './routes/conversationRoutes';
 import { messageRoutes } from './routes/messageRoutes';
 import { userRoutes } from './routes/userRoutes';
+import { contactRoutes } from './routes/contactRoutes';
 import { logger } from './utils/logger';
 
 export function createApp(): express.Application {
@@ -53,6 +54,7 @@ export function createApp(): express.Application {
   app.use('/api/auth', authRoutes);
   app.use('/api/whatsapp', whatsappRoutes);
   app.use('/api/conversations', conversationRoutes);
+  app.use('/api/contacts', contactRoutes);
   app.use('/api/messages', messageRoutes);
   app.use('/api/user', userRoutes);
 

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { requireAuth, AuthenticatedRequest } from '../security/authMiddleware';
 import { Conversation } from '../models/Conversation';
+import { Contact } from '../models/Contact';
 import { Message } from '../models/Message';
 import { validateAndNormalizePhone } from '../utils/phoneValidator';
 import { sendManualTextMessage, resolveWhatsAppContact } from '../whatsapp/baileysManager';
@@ -80,10 +81,38 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
       // Non-blocking
     }
 
-    // Check if conversation already exists
+    const contactName = name?.trim() || phoneValidation.e164;
+
+    // 1. Find or create Contact in Contact collection
+    let contact = await Contact.findOne({
+      userId,
+      $or: [
+        { jid: targetJid },
+        { jid: canonicalJid },
+        { phoneNumber: phoneValidation.e164 },
+        ...(canonicalLid ? [{ lid: canonicalLid }] : [])
+      ]
+    });
+
+    if (!contact) {
+      contact = await Contact.create({
+        userId,
+        name: contactName,
+        phoneNumber: phoneValidation.e164,
+        jid: canonicalJid,
+        lid: canonicalLid
+      });
+    } else {
+      if (canonicalLid && !contact.lid) contact.lid = canonicalLid;
+      if (name?.trim()) contact.name = name.trim();
+      await contact.save();
+    }
+
+    // 2. Check if conversation already exists
     let conversation = await Conversation.findOne({
       userId,
       $or: [
+        { contactId: contact._id },
         { jid: targetJid },
         { jid: canonicalJid },
         ...(canonicalLid ? [{ lid: canonicalLid }] : [])
@@ -93,19 +122,19 @@ router.post('/', async (req: AuthenticatedRequest, res: Response) => {
     if (!conversation) {
       conversation = await Conversation.create({
         userId,
+        contactId: contact._id,
         jid: canonicalJid,
         lid: canonicalLid,
         phoneNumber: phoneValidation.e164,
-        name: name?.trim() || phoneValidation.e164,
+        name: contact.name,
         unreadCount: 0,
         lastMessageTimestamp: new Date()
       });
     } else {
+      conversation.contactId = contact._id;
+      conversation.name = contact.name;
       if (canonicalLid && !conversation.lid) {
         conversation.lid = canonicalLid;
-      }
-      if (name?.trim() && conversation.name === conversation.phoneNumber) {
-        conversation.name = name.trim();
       }
       await conversation.save();
     }

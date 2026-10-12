@@ -14,6 +14,7 @@ import pino from 'pino';
 import { useEncryptedAuthState } from './authStateAdapter';
 import { WhatsAppSession, WhatsAppSessionStatus } from '../models/WhatsAppSession';
 import { Conversation } from '../models/Conversation';
+import { Contact } from '../models/Contact';
 import { Message } from '../models/Message';
 import { validateAndNormalizePhone } from '../utils/phoneValidator';
 import { checkMessageRateLimit, recordMessageSent } from '../security/rateLimiter';
@@ -372,7 +373,8 @@ export async function startWhatsAppSession(userId: string): Promise<{
           ? msg.pushName
           : (phoneValidation.e164 || remoteJid.split('@')[0] || 'Contact');
 
-        let conversation = await Conversation.findOne({
+        // 1. Look up contact in Contact collection
+        let contact = await Contact.findOne({
           userId,
           $or: [
             { jid: remoteJid },
@@ -382,11 +384,35 @@ export async function startWhatsAppSession(userId: string): Promise<{
           ]
         });
 
-        // If not found and remoteJid is a WhatsApp LID (@lid), match with existing contact
-        if (!conversation && remoteJid.endsWith('@lid')) {
-          // 1. Match by pushName if present
+        // 2. Look up conversation
+        let conversation = await Conversation.findOne({
+          userId,
+          $or: [
+            ...(contact ? [{ contactId: contact._id }] : []),
+            { jid: remoteJid },
+            { lid: remoteJid },
+            ...(phoneValidation.isValid ? [{ jid: phoneValidation.jid }, { phoneNumber: phoneValidation.e164 }] : []),
+            ...(msg.key.participant ? [{ jid: msg.key.participant }, { lid: msg.key.participant }] : [])
+          ]
+        });
+
+        // Backward compatibility: If conversation exists but contact wasn't created yet, auto-create contact
+        if (!contact && conversation) {
+          contact = await Contact.create({
+            userId,
+            name: conversation.name,
+            phoneNumber: conversation.phoneNumber,
+            jid: conversation.jid,
+            lid: conversation.lid
+          });
+          conversation.contactId = contact._id;
+          await conversation.save();
+        }
+
+        // If not found and remoteJid is @lid, match with existing contact
+        if (!contact && remoteJid.endsWith('@lid')) {
           if (msg.pushName) {
-            const matchedByPush = await Conversation.findOne({
+            const matchedByPush = await Contact.findOne({
               userId,
               $or: [
                 { name: msg.pushName },
@@ -394,51 +420,35 @@ export async function startWhatsAppSession(userId: string): Promise<{
               ]
             });
             if (matchedByPush) {
-              conversation = matchedByPush;
-              conversation.lid = remoteJid;
-              await conversation.save();
-            }
-          }
-
-          // 2. If still not matched, check existing conversations without LID in parallel
-          if (!conversation) {
-            try {
-              const pendingConvs = await Conversation.find({
-                userId,
-                $or: [{ lid: { $exists: false } }, { lid: null }, { lid: '' }]
-              }).limit(50);
-
-              const allDigits = pendingConvs
-                .map((c) => c.phoneNumber?.replace(/\D/g, ''))
-                .filter(Boolean) as string[];
-
-              if (allDigits.length > 0) {
-                const checks = await Promise.allSettled(
-                  allDigits.map((d) => sock.onWhatsApp(d))
-                );
-                for (let i = 0; i < checks.length; i++) {
-                  const res = checks[i];
-                  if (res.status === 'fulfilled' && res.value && res.value.length > 0) {
-                    const found = res.value[0];
-                    if ((found as any).lid === remoteJid) {
-                      conversation = pendingConvs[i];
-                      conversation.lid = remoteJid;
-                      await conversation.save();
-                      break;
-                    }
-                  }
-                }
-              }
-            } catch (err) {
-              logger.warn({ err }, 'Error resolving LID against existing conversations');
+              contact = matchedByPush;
+              contact.lid = remoteJid;
+              await contact.save();
             }
           }
         }
 
-        // Only store messages for contacts that have been added by the user
-        if (!conversation) {
-          logger.info({ remoteJid, pushName: msg.pushName, isFromMe }, 'Skipping message: sender is not in added contacts');
+        // Only store messages for contacts that have been saved by the user
+        if (!contact && !conversation) {
+          logger.info({ remoteJid, pushName: msg.pushName, isFromMe }, 'Skipping message: sender is not in saved contacts');
           continue;
+        }
+
+        if (!conversation && contact) {
+          conversation = new Conversation({
+            userId,
+            contactId: contact._id,
+            jid: contact.jid || remoteJid,
+            lid: contact.lid,
+            phoneNumber: contact.phoneNumber,
+            name: contact.name,
+            unreadCount: 0
+          });
+        }
+
+        if (!conversation) continue;
+
+        if (contact && !conversation.contactId) {
+          conversation.contactId = contact._id;
         }
 
         if (!isFromMe) {

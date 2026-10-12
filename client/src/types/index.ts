@@ -26,9 +26,24 @@ export interface WhatsAppSession {
 export type MessageDirection = 'inbound' | 'outbound';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
+export interface Contact {
+  _id: string;
+  userId: string;
+  phoneNumber: string;
+  jid: string;
+  lid?: string;
+  name: string;
+  avatarUrl?: string;
+  notes?: string;
+  tags?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Conversation {
   _id: string;
   userId: string;
+  contactId?: string;
   jid: string;
   lid?: string;
   phoneNumber: string;
