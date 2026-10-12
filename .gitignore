@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production builds
+dist/
+client/dist/
+server/dist/
+
+# Environment & Secrets (Never commit secrets)
+.env
+.env.local
+.env.*.local
+client/.env
+server/.env
+*.env
+
+# WhatsApp Session Keys (Critical security)
+auth_sessions/
+server/auth_sessions/
+.auth_sessions/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database & temp
+.db_data/
+server/.db_data/
+.cache/
+coverage/
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
