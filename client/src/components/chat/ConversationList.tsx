@@ -33,7 +33,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   });
 
   return (
-    <div className="flex flex-col h-full bg-slate-900/90 dark:bg-[#11151E] border-r border-slate-800 dark:border-[#1E2535]">
+    <div className="flex flex-col h-full w-full min-w-0 overflow-hidden bg-slate-900/90 dark:bg-[#11151E] border-r border-slate-800 dark:border-[#1E2535]">
       {/* Top action bar */}
       <div className="p-4 border-b border-slate-800 dark:border-[#1E2535] space-y-3">
         <div className="flex items-center justify-between">
@@ -91,7 +91,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
       </div>
 
       {/* Conversations Stream */}
-      <div className="flex-1 overflow-y-auto divide-y divide-transparent">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 divide-y divide-transparent">
         {isLoading ? (
           <div className="p-4 space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (

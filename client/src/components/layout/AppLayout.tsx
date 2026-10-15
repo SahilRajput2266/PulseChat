@@ -448,7 +448,7 @@ export const AppLayout: React.FC = () => {
 
       {/* 2. Conversations Panel */}
       <div
-        className={`w-full md:w-80 lg:w-96 flex-shrink-0 h-full ${
+        className={`w-full md:w-80 md:min-w-[20rem] md:max-w-[20rem] lg:w-96 lg:min-w-[24rem] lg:max-w-[24rem] flex-shrink-0 h-full overflow-hidden min-w-0 ${
           isMobileChatOpen ? 'hidden md:flex' : 'flex'
         }`}
       >
@@ -465,7 +465,7 @@ export const AppLayout: React.FC = () => {
 
       {/* 3. Main Chat View */}
       <div
-        className={`flex-1 h-full min-w-0 ${
+        className={`flex-1 h-full min-w-0 overflow-hidden ${
           isMobileChatOpen ? 'flex' : 'hidden md:flex'
         }`}
       >

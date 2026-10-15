@@ -65,7 +65,7 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
   return (
     <div
       onClick={onClick}
-      className={`group flex items-center gap-3.5 px-4 py-3 cursor-pointer transition-all border-b border-slate-800/40 dark:border-[#1E2535]/60 select-none ${
+      className={`group flex items-center gap-3.5 px-4 py-3 cursor-pointer transition-all border-b border-slate-800/40 dark:border-[#1E2535]/60 select-none min-w-0 w-full overflow-hidden ${
         isActive
           ? 'bg-slate-800/80 dark:bg-[#1E2535] border-l-4 border-l-brand-500'
           : 'hover:bg-slate-800/40 dark:hover:bg-[#161C27]'
@@ -79,24 +79,24 @@ export const ConversationItem: React.FC<ConversationItemProps> = ({
       </div>
 
       {/* Info column */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1">
-          <h4 className="text-sm font-medium text-slate-100 truncate group-hover:text-brand-300 transition-colors">
+      <div className="flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-center justify-between mb-1 gap-2 min-w-0">
+          <h4 className="text-sm font-medium text-slate-100 truncate min-w-0 flex-1 group-hover:text-brand-300 transition-colors">
             {conversation.name}
           </h4>
-          <span className="text-[11px] text-slate-400 font-normal ml-2 flex-shrink-0">
+          <span className="text-[11px] text-slate-400 font-normal flex-shrink-0 whitespace-nowrap">
             {formatTimestamp(conversation.lastMessageTimestamp)}
           </span>
         </div>
 
-        <div className="flex items-center justify-between gap-1">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400 truncate">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 text-xs text-slate-400 min-w-0 flex-1 overflow-hidden">
             {conversation.lastMessageDirection === 'outbound' && (
               <span className="flex-shrink-0">
                 {renderStatusIcon(conversation.lastMessageStatus)}
               </span>
             )}
-            <span className="truncate">
+            <span className="truncate block flex-1 text-slate-400">
               {conversation.lastMessagePreview || 'No messages yet'}
             </span>
           </div>
